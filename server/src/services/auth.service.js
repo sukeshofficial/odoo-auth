@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import User, { USER_STATUS } from "../models/user.model.js";
 import { USER_ROLES } from "../config/roles.js";
 import { generateToken, verifyToken } from "../utils/token.utils.js";
-import { sendPasswordResetEmail } from "./email.service.js";
+import { sendPasswordResetEmail, sendVerificationEmail } from "./email.service.js";
 import { uploadImage, validateImageFile } from "./storage.service.js";
 
 // Re-export token utilities for backward compatibility
@@ -40,7 +40,12 @@ export const registerUser = async ({ name, email, phone, password, confirmPasswo
     throw error;
   }
 
-  // Strictly assign default canonical user role and default active status
+  const verificationToken = crypto.randomBytes(32).toString("hex");
+  const hashedVerificationToken = crypto.createHash("sha256").update(verificationToken).digest("hex");
+  const verificationExpiresMinutes = parseInt(process.env.EMAIL_VERIFICATION_EXPIRES_MINUTES || "30", 10);
+  const verificationExpires = new Date(Date.now() + verificationExpiresMinutes * 60 * 1000);
+
+  // Strictly assign default canonical user role, unverified email, and verification token
   const user = new User({
     name: name.trim(),
     email: normalizedEmail,
@@ -48,12 +53,28 @@ export const registerUser = async ({ name, email, phone, password, confirmPasswo
     password, // Mongoose pre-save hook will securely hash
     role: USER_ROLES.USER,
     status: USER_STATUS.ACTIVE,
+    emailVerified: false,
+    emailVerificationToken: hashedVerificationToken,
+    emailVerificationExpires: verificationExpires,
+    emailVerificationSentAt: new Date(),
     permissions: [],
     tokenVersion: 0,
   });
 
   await user.save();
   const token = generateToken(user);
+
+  // Dispatch verification email in the background without blocking registration response
+  try {
+    await sendVerificationEmail({
+      to: user.email,
+      name: user.name,
+      verificationToken,
+      expirationMinutes: verificationExpiresMinutes,
+    });
+  } catch (emailErr) {
+    console.error("Failed to dispatch registration verification email:", emailErr?.message);
+  }
 
   return {
     user: user.toSafeObject(),
@@ -458,4 +479,111 @@ export const verifyResetToken = async (token) => {
     passwordResetExpires: { $gt: new Date() },
   });
   return Boolean(user);
+};
+
+/**
+ * Request an email verification link.
+ * Authenticates user, checks if already verified, applies cooldown rate-limiting,
+ * generates a single-use SHA-256 hashed token with 30-min expiration, and emails it.
+ *
+ * @param {string} userId
+ */
+export const requestEmailVerification = async (userId) => {
+  const user = await User.findById(userId).select("+emailVerificationSentAt");
+  if (!user) {
+    const error = new Error("User account not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (user.emailVerified) {
+    const error = new Error("Your email address is already verified");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Resend cooldown rate limit: 60 seconds
+  const COOLDOWN_SECONDS = 60;
+  if (user.emailVerificationSentAt) {
+    const timeSinceLastSent = (Date.now() - new Date(user.emailVerificationSentAt).getTime()) / 1000;
+    if (timeSinceLastSent < COOLDOWN_SECONDS) {
+      const waitSeconds = Math.ceil(COOLDOWN_SECONDS - timeSinceLastSent);
+      const error = new Error(`Please wait ${waitSeconds} seconds before requesting another verification email.`);
+      error.statusCode = 429;
+      throw error;
+    }
+  }
+
+  const verificationToken = crypto.randomBytes(32).toString("hex");
+  const hashedToken = crypto.createHash("sha256").update(verificationToken).digest("hex");
+  const expirationMinutes = parseInt(process.env.EMAIL_VERIFICATION_EXPIRES_MINUTES || "30", 10);
+  const expirationDate = new Date(Date.now() + expirationMinutes * 60 * 1000);
+
+  user.emailVerificationToken = hashedToken;
+  user.emailVerificationExpires = expirationDate;
+  user.emailVerificationSentAt = new Date();
+  await user.save({ validateBeforeSave: false });
+
+  try {
+    await sendVerificationEmail({
+      to: user.email,
+      name: user.name,
+      verificationToken,
+      expirationMinutes,
+    });
+  } catch (emailErr) {
+    console.error("Failed to send email verification link:", emailErr?.message);
+    const error = new Error("Failed to dispatch verification email. Please try again later.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  return {
+    success: true,
+    message: "A verification link has been sent to your registered email address.",
+  };
+};
+
+/**
+ * Confirm email verification with submitted token.
+ * Validates expiration, single-use token, and atomically updates emailVerified to true.
+ *
+ * @param {string} token
+ */
+export const confirmEmailVerification = async (token) => {
+  if (!token || typeof token !== "string") {
+    const error = new Error("Verification token is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const hashedToken = crypto.createHash("sha256").update(token.trim()).digest("hex");
+
+  // Atomically find and update matching user if token is valid and unexpired
+  const user = await User.findOneAndUpdate(
+    {
+      emailVerificationToken: hashedToken,
+      emailVerificationExpires: { $gt: new Date() },
+    },
+    {
+      $set: { emailVerified: true },
+      $unset: {
+        emailVerificationToken: 1,
+        emailVerificationExpires: 1,
+      },
+    },
+    { new: true }
+  );
+
+  if (!user) {
+    const error = new Error("Invalid or expired verification link. Please request a new verification email.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    success: true,
+    message: "Email address verified successfully!",
+    user: user.toSafeObject(),
+  };
 };

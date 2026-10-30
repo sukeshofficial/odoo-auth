@@ -399,3 +399,166 @@ export const sendPasswordResetEmail = async ({
     text: plainText,
   });
 };
+
+/**
+ * Reusable HTML template for Email Verification
+ */
+export const generateEmailVerificationTemplate = ({
+  name = "there",
+  verificationUrl,
+  expirationMinutes = 30,
+  appName = process.env.APP_NAME || "Starter Platform",
+  year = new Date().getFullYear(),
+}) => {
+  const safeName = escapeHtml(name || "there");
+  const safeVerificationUrl = escapeHtml(verificationUrl);
+  const safeAppName = escapeHtml(appName);
+
+  return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verify your email address</title>
+  <style type="text/css">
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
+    body { margin: 0; padding: 0; width: 100% !important; background-color: #F4F6FA; }
+    @media only screen and (max-width: 600px) {
+      .email-container { width: 100% !important; }
+      .email-card { padding: 24px 20px !important; border-radius: 12px !important; }
+      .mobile-button { width: 100% !important; display: block !important; text-align: center !important; }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F4F6FA; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <center style="width: 100%; background-color: #F4F6FA; padding-top: 36px; padding-bottom: 48px;">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; margin: 0 auto;" class="email-container">
+      <tr>
+        <td align="left" style="padding-bottom: 20px; padding-left: 4px; padding-right: 4px;">
+          <table border="0" cellpadding="0" cellspacing="0">
+            <tr>
+              <td valign="middle">
+                <span style="font-size: 18px; font-weight: 700; color: #172033; letter-spacing: -0.3px; display: block; line-height: 1.2;">${safeAppName}</span>
+                <span style="font-size: 12px; font-weight: 500; color: #667085; display: block;">Email Verification</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #FFFFFF; border: 1px solid #E7EAF0; border-radius: 16px; padding: 36px 36px; box-shadow: 0 4px 12px rgba(23, 32, 51, 0.04);" class="email-card">
+            <tr>
+              <td align="left" style="padding-bottom: 8px;">
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.8px; color: #2563EB; text-transform: uppercase;">CONFIRM YOUR EMAIL</span>
+              </td>
+            </tr>
+            <tr>
+              <td align="left" style="padding-bottom: 16px;">
+                <h1 style="font-size: 24px; font-weight: 700; color: #172033; margin: 0; line-height: 1.3;">Verify your email address</h1>
+              </td>
+            </tr>
+            <tr>
+              <td align="left" style="padding-bottom: 24px; font-size: 14px; line-height: 1.6; color: #475467;">
+                Hello <strong>${safeName}</strong>,<br /><br />
+                Thank you for signing up for ${safeAppName}. To complete your setup and ensure secure access to your account, please verify your email address by clicking the button below:
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding-bottom: 28px;">
+                <table border="0" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="center" style="border-radius: 10px; background-color: #2563EB;">
+                      <a href="${safeVerificationUrl}" target="_blank" rel="noopener noreferrer" style="font-size: 14px; font-weight: 600; color: #FFFFFF; text-decoration: none; padding: 12px 28px; display: inline-block; border-radius: 10px; background-color: #2563EB;">
+                        Verify Email Address
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td align="left" style="padding-bottom: 20px; font-size: 13px; line-height: 1.6; color: #667085; border-top: 1px solid #F2F4F7; padding-top: 20px;">
+                <strong>Note:</strong> This verification link will expire in <strong>${expirationMinutes} minutes</strong>. If you did not create an account or request this verification, you can safely ignore this email; no account will be activated with your email without this confirmation.
+              </td>
+            </tr>
+            <tr>
+              <td align="left" style="font-size: 12px; line-height: 1.6; color: #98A2B3;">
+                If the button above does not work, copy and paste this URL into your browser:<br />
+                <a href="${safeVerificationUrl}" target="_blank" rel="noopener noreferrer" style="color: #2563EB; word-break: break-all;">${safeVerificationUrl}</a>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td align="center" style="padding-top: 24px; font-size: 12px; color: #98A2B3;">
+          © ${year} ${safeAppName}. All rights reserved.
+        </td>
+      </tr>
+    </table>
+  </center>
+</body>
+</html>`;
+};
+
+/**
+ * Dispatch verification email
+ */
+export const sendVerificationEmail = async ({
+  to,
+  name,
+  verificationToken,
+  expirationMinutes = 30,
+}) => {
+  if (typeof to !== "string" || !to.trim()) {
+    throw new Error("A valid recipient email is required");
+  }
+
+  if (typeof verificationToken !== "string" || !verificationToken.trim()) {
+    throw new Error("A valid verification token is required");
+  }
+
+  const clientUrl = getClientUrl();
+  const verifyUrl = new URL("/verify-email", `${clientUrl}/`);
+  verifyUrl.searchParams.set("token", verificationToken);
+  verifyUrl.searchParams.set("email", to.trim());
+
+  const verificationLink = verifyUrl.toString();
+  const safeName = sanitizePlainText(name || "there");
+  const appName = process.env.APP_NAME || "Starter Platform";
+  const currentYear = new Date().getFullYear();
+
+  const subject = `Verify your email for ${appName}`;
+
+  const html = generateEmailVerificationTemplate({
+    name: safeName,
+    verificationUrl: verificationLink,
+    expirationMinutes,
+    appName,
+    year: currentYear,
+  });
+
+  const plainText = [
+    `VERIFY YOUR EMAIL - ${appName}`,
+    "",
+    `Hello ${safeName || "there"},`,
+    "",
+    `Thank you for joining ${appName}. Please verify your email address by visiting this link:`,
+    "",
+    verificationLink,
+    "",
+    `This link expires in ${expirationMinutes} minutes. If you did not sign up, please ignore this email.`,
+    "",
+    `© ${currentYear} ${appName}. All rights reserved.`,
+  ].join("\n");
+
+  return sendEmail({
+    to: to.trim(),
+    subject,
+    html,
+    text: plainText,
+  });
+};

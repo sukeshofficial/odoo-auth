@@ -22,6 +22,8 @@ import {
   Upload,
   Image as ImageIcon,
   CheckCircle,
+  XCircle,
+  MailCheck,
 } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import {
@@ -30,6 +32,7 @@ import {
   uploadProfilePic,
   selectProfilePic,
   deleteProfilePic,
+  requestEmailVerification,
 } from "@/services/authService"
 import {
   Dialog,
@@ -111,6 +114,11 @@ export default function UserProfilePage() {
   const [sendingReset, setSendingReset] = useState(false)
   const [resetSentSuccess, setResetSentSuccess] = useState(false)
   const [securityNotice, setSecurityNotice] = useState("")
+
+  // Email verification request states
+  const [sendingVerification, setSendingVerification] = useState(false)
+  const [verificationFeedback, setVerificationFeedback] = useState("")
+  const [verificationSuccess, setVerificationSuccess] = useState(false)
 
   // Derive initial avatar letter and formatted metadata
   const userInitial = (
@@ -416,6 +424,26 @@ export default function UserProfilePage() {
     }
   }
 
+  // Request email verification email
+  const handleRequestVerification = async () => {
+    setSendingVerification(true)
+    setVerificationFeedback("")
+    setVerificationSuccess(false)
+    try {
+      const response = await requestEmailVerification(token)
+      setVerificationSuccess(true)
+      setVerificationFeedback(response?.message || "Verification link sent! Check your inbox.")
+    } catch (err) {
+      console.error("Email verification request error:", err)
+      setVerificationSuccess(false)
+      setVerificationFeedback(
+        err?.response?.data?.message || "Unable to send verification email. Please try again later."
+      )
+    } finally {
+      setSendingVerification(false)
+    }
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10">
       {/* 1. Page Header */}
@@ -522,10 +550,23 @@ export default function UserProfilePage() {
                 </span>
 
                 {/* Email Verification Badge */}
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60">
-                  <ShieldCheck className="size-3.5 text-blue-600 dark:text-blue-400" />
-                  <span>{isEmailVerified ? "Email Verified" : "Verification Pending"}</span>
-                </span>
+                {isEmailVerified ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
+                    <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Verified</span>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleRequestVerification}
+                    disabled={sendingVerification}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 transition cursor-pointer disabled:opacity-50"
+                    title="Click to send verification link"
+                  >
+                    <XCircle className="size-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Unverified (Click to Verify)</span>
+                  </button>
+                )}
               </div>
 
               {/* Image Upload Notifications */}
@@ -652,16 +693,52 @@ export default function UserProfilePage() {
                   className="w-full pl-10 pr-28 py-2.5 rounded-xl border border-border bg-neutral-100/60 dark:bg-neutral-800/40 text-muted-foreground text-sm font-medium transition cursor-not-allowed select-all"
                 />
                 {/* Verified indicator badge inside right */}
-                {isEmailVerified && (
+                {isEmailVerified ? (
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/60 dark:border-emerald-800/60 select-none">
                     <CheckCircle2 className="size-3.5" />
                     <span>Verified</span>
                   </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleRequestVerification}
+                    disabled={sendingVerification}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 transition shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {sendingVerification ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <MailCheck className="size-3.5" />
+                    )}
+                    <span>{sendingVerification ? "Sending…" : "Verify Email"}</span>
+                  </button>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-1.5">
-                Changing your email may require re-verification.
-              </p>
+
+              {/* Verification Feedback Message */}
+              {verificationFeedback && (
+                <p
+                  className={`text-xs font-medium pt-1.5 flex items-center gap-1.5 ${
+                    verificationSuccess
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  }`}
+                >
+                  {verificationSuccess ? (
+                    <CheckCircle2 className="size-3.5 shrink-0" />
+                  ) : (
+                    <AlertCircle className="size-3.5 shrink-0" />
+                  )}
+                  <span>{verificationFeedback}</span>
+                </p>
+              )}
+
+              {!isEmailVerified && !verificationFeedback && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1">
+                  <AlertCircle className="size-3.5 shrink-0" />
+                  <span>Your email is not verified yet. Click "Verify Email" to send a confirmation link.</span>
+                </p>
+              )}
             </div>
 
             {/* 3. Phone Number */}

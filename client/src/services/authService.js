@@ -228,6 +228,25 @@ export async function getCustomerResource(customerId, token) {
 }
 
 /**
+ * Request email verification link
+ * POST /api/v1/auth/email-verification/request
+ */
+export async function requestEmailVerification(token) {
+    const headers = buildAuthHeaders(token);
+    const { data } = await api.post(`${AUTH_BASE_URL}/email-verification/request`, {}, { headers });
+    return data;
+}
+
+/**
+ * Confirm email verification with token
+ * POST /api/v1/auth/email-verification/confirm
+ */
+export async function confirmEmailVerification(verificationToken) {
+    const { data } = await api.post(`${AUTH_BASE_URL}/email-verification/confirm`, { token: verificationToken });
+    return data;
+}
+
+/**
  * 7. Request password recovery link
  * POST /api/v1/auth/forgot-password
  * 

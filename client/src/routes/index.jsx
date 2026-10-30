@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom"
 import LoginPage from "@/pages/LoginPage"
 import SignupPage from "@/pages/SignupPage"
 import ResetPasswordPage from "@/pages/ResetPasswordPage"
+import VerifyEmailPage from "@/pages/VerifyEmailPage"
 import DashboardPage from "@/pages/DashboardPage"
 import UserProfilePage from "@/pages/UserProfilePage"
 import WorkspacePlaceholderPage from "@/pages/WorkspacePlaceholderPage"
@@ -18,6 +19,7 @@ export default function AppRoutes() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/register" element={<SignupPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
 
       {/* Protected Routes with Horizontal Navbar Layout */}
       <Route

@@ -150,3 +150,27 @@ export const requirePermission = (...requiredPermissions) => {
     next();
   };
 };
+
+/**
+ * Verified Email Authorization Middleware:
+ * Reusable middleware ensuring the authenticated user has verified their email address.
+ * Rejects with 403 Forbidden if emailVerified is false.
+ */
+export const requireVerifiedEmail = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required before email verification check.",
+    });
+  }
+
+  if (!req.user.emailVerified) {
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden: Please verify your email address to access this resource.",
+      code: "EMAIL_NOT_VERIFIED",
+    });
+  }
+
+  next();
+};

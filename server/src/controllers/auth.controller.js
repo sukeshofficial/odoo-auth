@@ -272,6 +272,46 @@ export const deleteProfilePicture = async (req, res) => {
 };
 
 /**
+ * Request Email Verification Link (POST /api/v1/auth/email-verification/request)
+ */
+export const requestEmailVerification = async (req, res) => {
+  try {
+    const result = await authService.requestEmailVerification(req.user._id);
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to request email verification link",
+    });
+  }
+};
+
+/**
+ * Confirm Email Verification (POST /api/v1/auth/email-verification/confirm)
+ */
+export const confirmEmailVerification = async (req, res) => {
+  try {
+    const { token } = req.body;
+    const result = await authService.confirmEmailVerification(token);
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      user: result.user,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to confirm email verification",
+    });
+  }
+};
+
+/**
  * Forgot Password
  */
 export const forgotPassword = async (req, res) => {

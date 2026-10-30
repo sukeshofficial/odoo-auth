@@ -13,6 +13,8 @@ import {
   forgotPassword,
   resetPassword,
   verifyResetToken,
+  requestEmailVerification,
+  confirmEmailVerification,
   staffDashboardOverview,
   testCustomerResource,
 } from "../controllers/auth.controller.js";
@@ -36,6 +38,18 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Rate limiter for email verification requests: max 10 requests per 15 mins
+const verificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    success: false,
+    message: "Too many email verification requests. Please try again after 15 minutes.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Public authentication routes
 router.post("/register", authLimiter, register);
 router.post("/login", authLimiter, login);
@@ -43,6 +57,10 @@ router.post("/logout", authenticate, logout);
 router.post("/forgot-password", authLimiter, forgotPassword);
 router.post("/reset-password", authLimiter, resetPassword);
 router.get("/verify-reset-token", verifyResetToken);
+
+// Email verification endpoints
+router.post("/email-verification/request", authenticate, verificationLimiter, requestEmailVerification);
+router.post("/email-verification/confirm", authLimiter, confirmEmailVerification);
 
 // Development visual preview for email template
 if (process.env.NODE_ENV !== "production") {
