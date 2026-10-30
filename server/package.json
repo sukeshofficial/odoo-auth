@@ -21,6 +21,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "seed:staff": "node scripts/create-staff.js",
+    "seed:admin": "node scripts/create-admin.js",
+    "seed:internal": "node scripts/create-internal-user.js",
     "lint": "eslint ."
   }
 }

@@ -1,5 +1,6 @@
 import * as authService from "../services/auth.service.js";
 import { authorizeOwnership } from "../services/ownership.service.js";
+import { validateImageFile } from "../services/storage.service.js";
 
 // Cookie options for secure session token delivery
 const getCookieOptions = () => {
@@ -14,13 +15,14 @@ const getCookieOptions = () => {
 };
 
 /**
- * Public Customer Registration
+ * Public User Registration
+ * Unconditionally assigns canonical 'user' role
  */
 export const register = async (req, res) => {
   try {
     const { name, email, phone, password, confirmPassword } = req.body;
 
-    const result = await authService.registerCustomer({
+    const result = await authService.registerUser({
       name,
       email,
       phone,
@@ -95,7 +97,7 @@ export const logout = async (req, res) => {
 };
 
 /**
- * Get Current User (GET /api/auth/me)
+ * Get Current User Profile (GET /api/v1/auth/me)
  */
 export const getMe = async (req, res) => {
   try {
@@ -114,7 +116,7 @@ export const getMe = async (req, res) => {
 };
 
 /**
- * Update Current User Profile (PATCH /api/auth/me)
+ * Update Current User Profile (PATCH /api/v1/auth/me)
  */
 export const updateMe = async (req, res) => {
   try {
@@ -144,6 +146,132 @@ export const updateMe = async (req, res) => {
 };
 
 /**
+ * Authenticated Password Change (PATCH /api/v1/auth/me/password)
+ */
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    const result = await authService.changePassword(req.user._id, {
+      currentPassword,
+      newPassword,
+      confirmPassword,
+    });
+
+    // Update session cookie with new token
+    res.cookie("token", result.token, getCookieOptions());
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      token: result.token,
+      user: result.user,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to change password",
+    });
+  }
+};
+
+/**
+ * Upload Profile Picture (POST /api/v1/auth/me/profile-picture & POST /api/v1/auth/profilePic)
+ */
+export const uploadProfilePicture = async (req, res) => {
+  try {
+    let buffer = null;
+    let mimetype = "image/jpeg";
+
+    if (req.file) {
+      buffer = req.file.buffer;
+      mimetype = req.file.mimetype;
+    } else if (req.body?.image || req.body?.profilePic || req.body?.profilePicture) {
+      // Handle base64 data URI passed in JSON body
+      const dataUri = req.body.image || req.body.profilePic || req.body.profilePicture;
+      const matches = String(dataUri).match(/^data:([A-Za-z-+/]+);base64,(.+)$/);
+      if (matches) {
+        mimetype = matches[1];
+        buffer = Buffer.from(matches[2], "base64");
+      }
+    }
+
+    if (!buffer) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file or valid image data provided",
+      });
+    }
+
+    const result = await authService.updateProfilePicture(req.user._id, buffer, mimetype);
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile picture updated successfully",
+      url: result.url,
+      profilePic: result.url,
+      profilePictures: result.profilePictures,
+      user: result.user,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to upload profile picture",
+    });
+  }
+};
+
+/**
+ * Select Existing Profile Picture (PATCH /api/v1/auth/me/profile-picture/select)
+ */
+export const selectProfilePicture = async (req, res) => {
+  try {
+    const { pictureUrl, url } = req.body;
+    const targetUrl = pictureUrl || url;
+
+    const result = await authService.selectProfilePicture(req.user._id, targetUrl);
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      url: result.url,
+      profilePic: result.url,
+      profilePictures: result.profilePictures,
+      user: result.user,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to select profile picture",
+    });
+  }
+};
+
+/**
+ * Delete Profile Picture (DELETE /api/v1/auth/me/profile-picture & DELETE /api/v1/auth/profilePic)
+ * Supports query param ?url=... or body { url } to delete a specific history item, or clears active.
+ */
+export const deleteProfilePicture = async (req, res) => {
+  try {
+    const targetUrl = req.query?.url || req.body?.url || req.body?.pictureUrl;
+    const result = await authService.removeProfilePicture(req.user._id, targetUrl);
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      profilePic: result.profilePic,
+      profilePictures: result.profilePictures,
+      user: result.user,
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to remove profile picture",
+    });
+  }
+};
+
+/**
  * Forgot Password
  */
 export const forgotPassword = async (req, res) => {
@@ -165,7 +293,6 @@ export const forgotPassword = async (req, res) => {
 
 /**
  * Reset Password (POST /api/v1/auth/reset-password)
- * Accepts { token, newPassword } or { token, password }
  */
 export const resetPassword = async (req, res) => {
   try {
@@ -188,7 +315,6 @@ export const resetPassword = async (req, res) => {
 
 /**
  * Validate Password Reset Token (GET /api/v1/auth/verify-reset-token)
- * Checks if the reset token exists and has not expired.
  */
 export const verifyResetToken = async (req, res) => {
   try {
@@ -217,7 +343,7 @@ export const verifyResetToken = async (req, res) => {
 };
 
 /**
- * Staff-only Management Endpoint Demo (Protected by requireRole)
+ * Legacy staff dashboard endpoint for backward compatibility
  */
 export const staffDashboardOverview = async (req, res) => {
   return res.status(200).json({
@@ -233,16 +359,16 @@ export const staffDashboardOverview = async (req, res) => {
 };
 
 /**
- * Ownership test resource endpoint verifying customer isolation
+ * Customer ownership test resource endpoint for backward compatibility
  */
 export const testCustomerResource = async (req, res) => {
   try {
     const { ownerId } = req.params;
 
-    // Verify authenticated user owns this resource or has internal_staff authority
     authorizeOwnership({
       resourceOwnerId: ownerId,
       authenticatedUser: req.user,
+      allowAdmin: true,
       allowStaff: true,
     });
 

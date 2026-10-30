@@ -8,6 +8,8 @@ import connectDB from "./config/db.js";
 import healthRoutes from "./routes/health.routes.js";
 import testInputRoutes from "./routes/testInput.routes.js";
 import authRoutes from "./routes/auth.routes.js";
+import userRoutes from "./routes/user.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
 
 const app = express();
 
@@ -67,6 +69,8 @@ app.use(async (req, res, next) => {
 app.use("/api/v1/health", healthRoutes);
 app.use("/api/v1/test-input", testInputRoutes);
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/user", userRoutes);
+app.use("/api/v1/admin", adminRoutes);
 
 
 // Handle unknown routes

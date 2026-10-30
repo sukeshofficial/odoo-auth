@@ -42,51 +42,6 @@ export default function AppRoutes() {
         }
       />
 
-      <Route
-        path="/rental"
-        element={
-          <ProtectedRoute>
-            <AppLayout>
-              <WorkspacePlaceholderPage
-                title="Rentals Workspace"
-                description="Manage your ongoing garment rentals, returns, and delivery tracking."
-                icon={Calendar}
-              />
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/products"
-        element={
-          <ProtectedRoute>
-            <AppLayout>
-              <WorkspacePlaceholderPage
-                title="Product Catalog"
-                description="Browse sustainable rental fashion, accessories, and designer wear."
-                icon={Package}
-              />
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/reporting"
-        element={
-          <ProtectedRoute>
-            <AppLayout>
-              <WorkspacePlaceholderPage
-                title="Reporting & Insights"
-                description="View your rental activity, sustainability impact, and account statements."
-                icon={BarChart3}
-              />
-            </AppLayout>
-          </ProtectedRoute>
-        }
-      />
-
       {/* Default Fallback Redirect */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

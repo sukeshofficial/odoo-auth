@@ -1,39 +1,19 @@
-import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
-import User, { USER_ROLES, USER_STATUS } from "../models/user.model.js";
+import User, { USER_STATUS } from "../models/user.model.js";
+import { USER_ROLES } from "../config/roles.js";
+import { generateToken, verifyToken } from "../utils/token.utils.js";
 import { sendPasswordResetEmail } from "./email.service.js";
+import { uploadImage, validateImageFile } from "./storage.service.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback_development_secret_change_in_production";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
-
-/**
- * Generate signed JWT for authenticated user
- */
-export const generateToken = (user) => {
-  return jwt.sign(
-    {
-      id: user._id ? user._id.toString() : user.id,
-      email: user.email,
-      role: user.role,
-    },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
-  );
-};
+// Re-export token utilities for backward compatibility
+export { generateToken, verifyToken };
 
 /**
- * Verify JWT token string
+ * Register a new user.
+ * Strict security: Role is unconditionally forced to 'user'.
+ * Any client-supplied role, permissions, status, or tokenVersion is stripped.
  */
-export const verifyToken = (token) => {
-  return jwt.verify(token, JWT_SECRET);
-};
-
-/**
- * Register a new customer.
- * Strict enforcement: Role is unconditionally set to 'customer'.
- * Client-supplied role, status, and permissions are rejected/ignored.
- */
-export const registerCustomer = async ({ name, email, phone, password, confirmPassword }) => {
+export const registerUser = async ({ name, email, phone, password, confirmPassword }) => {
   if (!name || !email || !phone || !password) {
     const error = new Error("All fields (name, email, phone, password) are required");
     error.statusCode = 400;
@@ -60,14 +40,16 @@ export const registerCustomer = async ({ name, email, phone, password, confirmPa
     throw error;
   }
 
-  // Create user strictly with customer role and active status
+  // Strictly assign default canonical user role and default active status
   const user = new User({
     name: name.trim(),
     email: normalizedEmail,
     phone: phone.trim(),
-    password, // Schema pre-save hook will hash this securely
-    role: USER_ROLES.CUSTOMER,
+    password, // Mongoose pre-save hook will securely hash
+    role: USER_ROLES.USER,
     status: USER_STATUS.ACTIVE,
+    permissions: [],
+    tokenVersion: 0,
   });
 
   await user.save();
@@ -78,6 +60,9 @@ export const registerCustomer = async ({ name, email, phone, password, confirmPa
     token,
   };
 };
+
+// Backward-compatible alias
+export const registerCustomer = registerUser;
 
 /**
  * Authenticate user with email and password.
@@ -100,7 +85,7 @@ export const loginUser = async ({ email, password }) => {
   }
 
   if (user.status === USER_STATUS.DISABLED) {
-    const error = new Error("Account is disabled. Please contact customer support.");
+    const error = new Error("Account is disabled. Please contact support.");
     error.statusCode = 403;
     throw error;
   }
@@ -110,6 +95,14 @@ export const loginUser = async ({ email, password }) => {
     const error = new Error("Invalid email or password");
     error.statusCode = 401;
     throw error;
+  }
+
+  // Automatic admin promotion if user email matches configured ADMIN_EMAIL
+  const adminEmail = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
+  if (adminEmail && normalizedEmail === adminEmail && user.role !== USER_ROLES.ADMIN) {
+    user.role = USER_ROLES.ADMIN;
+    user.permissions = ["*"];
+    await user.save();
   }
 
   const token = generateToken(user);
@@ -142,7 +135,7 @@ export const getUserProfile = async (userId) => {
 
 /**
  * Update permitted profile fields.
- * Prevents mass-assignment of role, status, email, or password.
+ * Prevents mass-assignment of role, status, email, password, permissions, tokenVersion.
  * Returns updated user and any prohibited fields that were ignored.
  */
 export const updateUserProfile = async (userId, updates = {}) => {
@@ -159,6 +152,8 @@ export const updateUserProfile = async (userId, updates = {}) => {
     "status",
     "email",
     "password",
+    "permissions",
+    "tokenVersion",
     "passwordResetToken",
     "passwordResetExpires",
     "emailVerified",
@@ -179,6 +174,10 @@ export const updateUserProfile = async (userId, updates = {}) => {
   if (updates.phone && typeof updates.phone === "string" && updates.phone.trim()) {
     user.phone = updates.phone.trim();
   }
+  if (typeof updates.profilePicture === "string") {
+    // Only allow setting empty string or valid URL directly through profile update
+    user.profilePicture = updates.profilePicture.trim();
+  }
 
   await user.save();
   return {
@@ -188,10 +187,189 @@ export const updateUserProfile = async (userId, updates = {}) => {
 };
 
 /**
+ * Update user's profile picture using storage abstraction.
+ * Automatically appends the new image to user's profilePictures history.
+ * @param {string} userId
+ * @param {Buffer} fileBuffer
+ * @param {string} mimetype
+ */
+export const updateProfilePicture = async (userId, fileBuffer, mimetype) => {
+  const validation = validateImageFile({ buffer: fileBuffer, mimetype, size: fileBuffer.length });
+  if (!validation.valid) {
+    const error = new Error(validation.error);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    const error = new Error("User not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const uploadResult = await uploadImage(fileBuffer, mimetype, "avatars");
+
+  user.profilePicture = uploadResult.url;
+  if (!Array.isArray(user.profilePictures)) {
+    user.profilePictures = [];
+  }
+  // Add new image to the front of history if not already present
+  if (!user.profilePictures.includes(uploadResult.url)) {
+    user.profilePictures.unshift(uploadResult.url);
+  }
+  await user.save();
+
+  return {
+    url: uploadResult.url,
+    profilePic: uploadResult.url,
+    profilePictures: user.profilePictures,
+    user: user.toSafeObject(),
+  };
+};
+
+/**
+ * Select an existing profile picture from history as active.
+ * @param {string} userId
+ * @param {string} pictureUrl
+ */
+export const selectProfilePicture = async (userId, pictureUrl) => {
+  if (!pictureUrl) {
+    const error = new Error("Picture URL is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    const error = new Error("User not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  user.profilePicture = pictureUrl;
+  if (!Array.isArray(user.profilePictures)) {
+    user.profilePictures = [];
+  }
+  if (!user.profilePictures.includes(pictureUrl)) {
+    user.profilePictures.unshift(pictureUrl);
+  }
+  await user.save();
+
+  return {
+    url: pictureUrl,
+    profilePic: pictureUrl,
+    profilePictures: user.profilePictures,
+    user: user.toSafeObject(),
+    message: "Profile picture selected successfully",
+  };
+};
+
+/**
+ * Remove user's active profile picture or delete a specific picture from history.
+ * @param {string} userId
+ * @param {string} [pictureUrl] - Specific URL to remove from history. If omitted or matches active, clears active.
+ */
+export const removeProfilePicture = async (userId, pictureUrl) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    const error = new Error("User not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (!Array.isArray(user.profilePictures)) {
+    user.profilePictures = [];
+  }
+
+  if (pictureUrl) {
+    // Remove specific picture from history
+    user.profilePictures = user.profilePictures.filter((p) => p !== pictureUrl);
+    // If the deleted picture was the active one, switch to the next available or empty
+    if (user.profilePicture === pictureUrl) {
+      user.profilePicture = user.profilePictures.length > 0 ? user.profilePictures[0] : "";
+    }
+  } else {
+    // Clear active profile picture
+    const current = user.profilePicture;
+    user.profilePicture = "";
+    if (current) {
+      user.profilePictures = user.profilePictures.filter((p) => p !== current);
+    }
+  }
+
+  await user.save();
+
+  return {
+    user: user.toSafeObject(),
+    profilePic: user.profilePicture,
+    profilePictures: user.profilePictures,
+    message: "Profile picture removed successfully",
+  };
+};
+
+/**
+ * Authenticated password change.
+ * Verifies current password, updates to new password, and increments tokenVersion to invalidate existing JWTs.
+ */
+export const changePassword = async (userId, { currentPassword, newPassword, confirmPassword }) => {
+  if (!currentPassword || !newPassword) {
+    const error = new Error("Current password and new password are required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (confirmPassword && newPassword !== confirmPassword) {
+    const error = new Error("New password confirmation does not match");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (newPassword.length < 8) {
+    const error = new Error("New password must be at least 8 characters long");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (currentPassword === newPassword) {
+    const error = new Error("New password cannot be identical to current password");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const user = await User.findById(userId).select("+password");
+  if (!user) {
+    const error = new Error("User not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const isMatch = await user.comparePassword(currentPassword);
+  if (!isMatch) {
+    const error = new Error("Incorrect current password");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Update password and invalidate previous sessions by incrementing tokenVersion
+  user.password = newPassword;
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+  await user.save();
+
+  // Issue new token with the new tokenVersion
+  const newToken = generateToken(user);
+
+  return {
+    message: "Password changed successfully. All previous sessions have been invalidated.",
+    token: newToken,
+    user: user.toSafeObject(),
+  };
+};
+
+/**
  * Request password recovery.
  * Generates an opaque crypto recovery token and expiration.
  * In production, outbound email sends the link.
- * For development/audit, returns a generic success message without leaking account existence.
  */
 export const requestPasswordRecovery = async (email) => {
   if (!email) {
@@ -219,8 +397,7 @@ export const requestPasswordRecovery = async (email) => {
         resetToken,
       });
     } catch (emailErr) {
-      console.error("❌ Failed to send password reset email:", emailErr?.message);
-      // Re-throw or log safely to ensure server resilience
+      console.error("Failed to send password reset email:", emailErr?.message);
     }
   }
 
@@ -232,6 +409,7 @@ export const requestPasswordRecovery = async (email) => {
 
 /**
  * Reset password with a valid recovery token.
+ * Increments tokenVersion to invalidate existing sessions.
  */
 export const resetPasswordWithToken = async (token, newPassword) => {
   if (!token || !newPassword) {
@@ -261,6 +439,7 @@ export const resetPasswordWithToken = async (token, newPassword) => {
   user.password = newPassword;
   user.passwordResetToken = undefined;
   user.passwordResetExpires = undefined;
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1; // Invalidate all existing tokens
   await user.save();
 
   return {

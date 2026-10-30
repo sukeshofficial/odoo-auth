@@ -6,6 +6,10 @@ import {
   logout,
   getMe,
   updateMe,
+  changePassword,
+  uploadProfilePicture,
+  selectProfilePicture,
+  deleteProfilePicture,
   forgotPassword,
   resetPassword,
   verifyResetToken,
@@ -16,10 +20,11 @@ import {
   authenticate,
   requireRole,
 } from "../middleware/auth.middleware.js";
+import { parseMultipartImage } from "../middleware/upload.middleware.js";
 
 const router = Router();
 
-// Rate limiter for authentication endpoints: max 50 requests per 15 mins (generous for tests, protective in prod)
+// Rate limiter for authentication endpoints: max 50 requests per 15 mins
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 50,
@@ -56,12 +61,24 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-// Authenticated current-user routes
+// Authenticated current-user profile routes
 router.get("/me", authenticate, getMe);
 router.patch("/me", authenticate, updateMe);
+router.patch("/me/password", authenticate, changePassword);
 
-// Internal staff management routes (Protected by authentication + requireRole)
-router.get("/staff/dashboard", authenticate, requireRole("internal_staff"), staffDashboardOverview);
+// Profile picture upload, select, and removal (Standard and frontend compatibility endpoints)
+router.post("/me/profile-picture", authenticate, parseMultipartImage("profilePic"), uploadProfilePicture);
+router.patch("/me/profile-picture/select", authenticate, selectProfilePicture);
+router.delete("/me/profile-picture", authenticate, deleteProfilePicture);
+
+// Frontend compatibility aliases for profile picture upload & delete
+router.post("/profilePic", authenticate, parseMultipartImage("profilePic"), uploadProfilePicture);
+router.post("/profile-pic", authenticate, parseMultipartImage("profilePic"), uploadProfilePicture);
+router.patch("/profilePic/select", authenticate, selectProfilePicture);
+router.delete("/profilePic", authenticate, deleteProfilePicture);
+
+// Legacy internal staff management route (Protected by authentication + requireRole)
+router.get("/staff/dashboard", authenticate, requireRole("internal_user", "internal_staff"), staffDashboardOverview);
 
 // Customer-isolated resource demonstration route (Protected by authentication + ownership check)
 router.get("/customer-resource/:ownerId", authenticate, testCustomerResource);

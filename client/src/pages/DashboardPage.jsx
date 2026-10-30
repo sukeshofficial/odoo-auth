@@ -14,13 +14,13 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-900 dark:bg-blue-950/60 dark:text-blue-200 border border-blue-200/60 dark:border-blue-800/60 mb-3">
-              <ShieldCheck className="size-3.5" /> ReWear Platform
+              <ShieldCheck className="size-3.5" /> ForgeGrid Platform
             </span>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
               Welcome back, {displayName}
             </h1>
             <p className="text-sm text-muted-foreground mt-1.5">
-              Access your rentals, manage product collections, and keep your profile updated.
+              Access your workspace and manage your account with ease.
             </p>
           </div>
 
@@ -36,7 +36,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Quick Navigation Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      {/* <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         <Link
           to="/rental"
           className="group rounded-2xl border border-border/80 bg-card p-6 shadow-xs hover:border-blue-300 dark:hover:border-blue-800/60 transition-all"
@@ -75,7 +75,7 @@ export default function DashboardPage() {
             Manage your personal information, security options, and password.
           </p>
         </Link>
-      </div>
+      </div> */}
     </div>
   )
 }

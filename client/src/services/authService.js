@@ -161,6 +161,47 @@ export async function uploadProfilePic(file, token) {
 export const uploadProfilePicture = uploadProfilePic;
 
 /**
+ * Select active profile picture from history
+ * PATCH /api/v1/auth/me/profile-picture/select
+ */
+export async function selectProfilePicture(url, token) {
+    const headers = buildAuthHeaders(token);
+    try {
+        const { data } = await api.patch(`${AUTH_BASE_URL}/me/profile-picture/select`, { url }, { headers });
+        return data;
+    } catch (err) {
+        if (err?.response?.status === 404) {
+            const { data } = await api.patch(`${AUTH_BASE_URL}/profilePic/select`, { url }, { headers });
+            return data;
+        }
+        throw err;
+    }
+}
+
+export const selectProfilePic = selectProfilePicture;
+
+/**
+ * Delete profile picture (clears active or deletes specific URL from history)
+ * DELETE /api/v1/auth/me/profile-picture
+ */
+export async function deleteProfilePicture(url, token) {
+    const headers = buildAuthHeaders(token);
+    const config = { headers, params: url ? { url } : {} };
+    try {
+        const { data } = await api.delete(`${AUTH_BASE_URL}/me/profile-picture`, config);
+        return data;
+    } catch (err) {
+        if (err?.response?.status === 404) {
+            const { data } = await api.delete(`${AUTH_BASE_URL}/profilePic`, config);
+            return data;
+        }
+        throw err;
+    }
+}
+
+export const deleteProfilePic = deleteProfilePicture;
+
+/**
  * 5. Access staff dashboard
  * GET /api/v1/auth/staff/dashboard
  * 

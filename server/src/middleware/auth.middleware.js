@@ -1,10 +1,13 @@
 import User, { USER_STATUS } from "../models/user.model.js";
-import { verifyToken } from "../services/auth.service.js";
+import { verifyToken } from "../utils/token.utils.js";
+import { normalizeRole, matchesRole, USER_ROLES } from "../config/roles.js";
+import { resolveUserPermissions, hasPermission } from "../config/permissions.js";
 
 /**
  * Authentication Middleware:
  * Extracts JWT from HTTP-only cookie or Authorization header,
- * verifies signature and expiration, retrieves user, and attaches to req.user.
+ * verifies signature, expiration, and tokenVersion against database.
+ * Attaches trusted, latest user from MongoDB to req.user.
  */
 export const authenticate = async (req, res, next) => {
   try {
@@ -48,6 +51,17 @@ export const authenticate = async (req, res, next) => {
       });
     }
 
+    // Check tokenVersion for session invalidation (after password change/reset)
+    // Only invalidate if token has a defined tokenVersion and it's older than database version
+    const tokenVersion = typeof decoded.tokenVersion === "number" ? decoded.tokenVersion : 0;
+    const dbTokenVersion = typeof user.tokenVersion === "number" ? user.tokenVersion : 0;
+    if (tokenVersion < dbTokenVersion) {
+      return res.status(401).json({
+        success: false,
+        message: "Session has been invalidated. Please log in again with your new password.",
+      });
+    }
+
     if (user.status === USER_STATUS.DISABLED) {
       return res.status(403).json({
         success: false,
@@ -55,8 +69,9 @@ export const authenticate = async (req, res, next) => {
       });
     }
 
-    // Attach trusted identity to request object
+    // Attach trusted identity and permissions to request object
     req.user = user;
+    req.userEffectivePermissions = resolveUserPermissions(user);
     next();
   } catch (error) {
     console.error("Authentication middleware error:", error);
@@ -70,6 +85,7 @@ export const authenticate = async (req, res, next) => {
 /**
  * Role Authorization Middleware:
  * Restricts access to one or more specified roles.
+ * Canonical roles (admin, internal_user, user) and legacy aliases (internal_staff, customer) are supported.
  * Rejects with 403 Forbidden if user lacks permitted role.
  */
 export const requireRole = (...allowedRoles) => {
@@ -81,7 +97,11 @@ export const requireRole = (...allowedRoles) => {
       });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    // Admin has access to administrative routes or general routes where admin is allowed
+    const userRole = req.user.role;
+    const hasRole = allowedRoles.some((allowedRole) => matchesRole(userRole, allowedRole));
+
+    if (!hasRole) {
       return res.status(403).json({
         success: false,
         message: "Forbidden: You do not possess the required role permissions.",
@@ -94,21 +114,11 @@ export const requireRole = (...allowedRoles) => {
 
 /**
  * Permission Authorization Middleware:
- * Allows role-based permission policies. Defaults to deny.
+ * Requires one or multiple permissions.
+ * Admins possess wildcard ('*') access.
+ * Denies by default for unassigned permissions or unknown roles.
  */
-export const requirePermission = (permission) => {
-  const rolePermissions = {
-    customer: ["view:own_orders", "edit:own_profile"],
-    end_user: ["view:assigned_orders", "view:own_profile"],
-    internal_staff: [
-      "view:all_orders",
-      "manage:internal_dashboard",
-      "manage:staff_ops",
-      "view:own_profile",
-      "edit:own_profile",
-    ],
-  };
-
+export const requirePermission = (...requiredPermissions) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -117,11 +127,23 @@ export const requirePermission = (permission) => {
       });
     }
 
-    const permittedActions = rolePermissions[req.user.role] || [];
-    if (!permittedActions.includes(permission)) {
+    const effectivePermissions =
+      req.userEffectivePermissions || resolveUserPermissions(req.user);
+
+    // If user is admin (wildcard), allow immediately
+    if (effectivePermissions.has("*")) {
+      return next();
+    }
+
+    // Check if user has all required permissions
+    const hasAll = requiredPermissions.every((perm) =>
+      hasPermission(effectivePermissions, perm)
+    );
+
+    if (!hasAll) {
       return res.status(403).json({
         success: false,
-        message: `Forbidden: Lacking permission '${permission}'.`,
+        message: `Forbidden: Lacking required permissions: ${requiredPermissions.join(", ")}`,
       });
     }
 

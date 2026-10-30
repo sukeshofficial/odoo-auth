@@ -6,10 +6,10 @@ import darkInterior from "@/assets/auth-dark-interior.png"
 import lightInterior from "@/assets/auth-light-interior.png"
 
 /**
- * RentalHouseIcon
+ * HouseIcon
  * Custom SVG matching the exact outline house with doorway mark from the reference.
  */
-export function RentalHouseIcon({ className = "size-7" }) {
+export function HouseIcon({ className = "size-7" }) {
   return (
     <svg
       viewBox="0 0 32 32"
@@ -65,8 +65,8 @@ export function AuthBrandPanel({
       {/* Atmospheric theme overlay */}
       <div
         className={`absolute inset-0 transition-colors duration-500 ${isDark
-            ? "bg-gradient-to-t from-black/80 via-black/35 to-black/60"
-            : "bg-gradient-to-t from-white/75 via-white/35 to-white/10"
+          ? "bg-gradient-to-t from-black/80 via-black/35 to-black/60"
+          : "bg-gradient-to-t from-white/75 via-white/35 to-white/10"
           }`}
         aria-hidden="true"
       />
@@ -77,11 +77,11 @@ export function AuthBrandPanel({
         {/* Compact brand icon */}
         <div
           className={`flex size-9 shrink-0 items-center justify-center rounded-[8px] ${isDark
-              ? "bg-white/10 text-white ring-1 ring-white/10"
-              : "bg-black/20 text-black-600"
+            ? "bg-white/10 text-white ring-1 ring-white/10"
+            : "bg-black/20 text-black-600"
             }`}
         >
-          <RentalHouseIcon className="size-5" />
+          <HouseIcon className="size-5" />
         </div>
 
         {/* Brand name */}
@@ -90,7 +90,7 @@ export function AuthBrandPanel({
             className={`text-[15px] font-bold leading-5 tracking-tight ${isDark ? "text-white" : "text-neutral-900"
               }`}
           >
-            Rental Management
+            ForgeGrid
           </span>
 
           <span

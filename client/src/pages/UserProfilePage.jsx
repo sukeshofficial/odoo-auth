@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useState, useRef } from "react"
+import { useState, useRef, useMemo } from "react"
 import {
   User,
   Mail,
@@ -17,9 +17,20 @@ import {
   CircleDot,
   Check,
   Camera,
+  Eye,
+  Trash2,
+  Upload,
+  Image as ImageIcon,
+  CheckCircle,
 } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
-import { updateMe, forgotPassword, uploadProfilePic } from "@/services/authService"
+import {
+  updateMe,
+  forgotPassword,
+  uploadProfilePic,
+  selectProfilePic,
+  deleteProfilePic,
+} from "@/services/authService"
 import {
   Dialog,
   DialogContent,
@@ -85,10 +96,14 @@ export default function UserProfilePage() {
   const [successMessage, setSuccessMessage] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
 
-  // Profile picture upload states
+  // Profile picture upload and gallery states
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [avatarError, setAvatarError] = useState("")
   const [avatarSuccess, setAvatarSuccess] = useState("")
+  const [avatarModalOpen, setAvatarModalOpen] = useState(false)
+  const [viewingImage, setViewingImage] = useState(null)
+  const [deletingAvatarUrl, setDeletingAvatarUrl] = useState(null)
+  const [selectingAvatarUrl, setSelectingAvatarUrl] = useState(null)
 
   // Security dialog states
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
@@ -107,6 +122,7 @@ export default function UserProfilePage() {
   // Resolve active profile image URL
   const currentAvatarUrl =
     user?.profilePic ||
+    user?.profilePicture ||
     user?.avatar ||
     user?.profile_avatar?.url ||
     user?.profile_avatar?.secure_url ||
@@ -114,12 +130,35 @@ export default function UserProfilePage() {
     (typeof window !== "undefined" ? localStorage.getItem("user_profile_pic") : null) ||
     ""
 
+  // Resolve array of previous and current profile pictures
+  const savedProfilePictures = useMemo(() => {
+    const list = Array.isArray(user?.profilePictures) ? [...user.profilePictures] : []
+    if (currentAvatarUrl && !list.includes(currentAvatarUrl)) {
+      list.unshift(currentAvatarUrl)
+    }
+    return list
+  }, [user?.profilePictures, currentAvatarUrl])
+
   const userRole = capitalize(user?.role || "Customer")
   const userStatus = capitalize(user?.status || "Active")
   const isEmailVerified = user?.emailVerified !== false // defaults true unless explicitly false
 
+  const hiddenEmail = formData.email.replace(
+  /^(.{2})(.*)(.{2})(@.*)$/,
+  (_, start, middle,end, domain) =>
+    `${start}${"*".repeat(Math.min(middle.length, 6))}${end}${domain}`
+)
+  
   const memberSince = formatProfileDate(user?.createdAt, "Oct 26, 2024")
   const lastUpdated = formatProfileDate(user?.updatedAt, "Oct 28, 2026")
+
+  // Check whether editable profile fields have changed
+  const isDirty =
+    formData.name.trim() !== (user?.name || "").trim() ||
+    formData.phone.trim() !== (user?.phone || "").trim()
+
+  // Basic form validation
+  const isFormValid = formData.name.trim().length > 0
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -182,16 +221,23 @@ export default function UserProfilePage() {
 
       // 4. API Integration: dispatch to profilePic route with Cloudinary integration
       let remoteUrl = localPreviewUrl
+      let serverUser = null
+      let serverHistory = null
+
       try {
         const response = await uploadProfilePic(file, token)
         remoteUrl =
           response?.url ||
           response?.profilePic ||
           response?.user?.profilePic ||
+          response?.user?.profilePicture ||
           response?.secure_url ||
           response?.user?.profile_avatar?.url ||
           response?.data?.url ||
           localPreviewUrl
+
+        serverUser = response?.user
+        serverHistory = response?.profilePictures || response?.user?.profilePictures
       } catch (uploadApiErr) {
         // If server endpoint is still being prepared by developer, gracefully preserve client state
         console.warn(
@@ -204,27 +250,115 @@ export default function UserProfilePage() {
       localStorage.setItem("user_profile_pic", remoteUrl)
 
       // 6. Immediately synchronize across AuthContext and Navbar dropdown
-      setUser((prev) => ({
-        ...prev,
-        profilePic: remoteUrl,
-        avatar: remoteUrl,
-        avatarUrl: remoteUrl,
-        profile_avatar: {
-          url: remoteUrl,
-          secure_url: remoteUrl,
-          ...(prev?.profile_avatar || {}),
-        },
-      }))
+      setUser((prev) => {
+        const history = serverHistory && Array.isArray(serverHistory) && serverHistory.length > 0
+          ? serverHistory
+          : (() => {
+            const prevHist = Array.isArray(prev?.profilePictures) ? [...prev.profilePictures] : []
+            if (!prevHist.includes(remoteUrl)) {
+              prevHist.unshift(remoteUrl)
+            }
+            return prevHist
+          })()
+
+        return {
+          ...(prev || {}),
+          ...(serverUser || {}),
+          profilePic: remoteUrl,
+          profilePicture: remoteUrl,
+          avatar: remoteUrl,
+          avatarUrl: remoteUrl,
+          profilePictures: history,
+          profile_avatar: {
+            url: remoteUrl,
+            secure_url: remoteUrl,
+            ...(prev?.profile_avatar || {}),
+          },
+        }
+      })
 
       setAvatarSuccess("Profile picture uploaded successfully!")
     } catch (err) {
       console.error("Avatar upload error:", err)
       setAvatarError(
         err?.response?.data?.message ||
-          "Failed to upload profile picture. Please try again."
+        "Failed to upload profile picture. Please try again."
       )
     } finally {
       setUploadingAvatar(false)
+    }
+  }
+
+  // Handle switching active profile picture from history
+  const handleSelectAvatar = async (url) => {
+    if (!url || url === currentAvatarUrl) return
+    setSelectingAvatarUrl(url)
+    setAvatarError("")
+    setAvatarSuccess("")
+
+    try {
+      await selectProfilePic(url, token)
+      localStorage.setItem("user_profile_pic", url)
+      setUser((prev) => ({
+        ...prev,
+        profilePic: url,
+        profilePicture: url,
+        avatar: url,
+        avatarUrl: url,
+        profile_avatar: {
+          url,
+          secure_url: url,
+          ...(prev?.profile_avatar || {}),
+        },
+      }))
+      setAvatarSuccess("Active profile picture updated!")
+    } catch (err) {
+      console.error("Failed to select avatar:", err)
+      setAvatarError(err?.response?.data?.message || "Failed to switch profile picture.")
+    } finally {
+      setSelectingAvatarUrl(null)
+    }
+  }
+
+  // Handle deleting a profile picture (either from history or currently active)
+  const handleDeleteAvatar = async (urlToDelete) => {
+    const target = urlToDelete || currentAvatarUrl
+    if (!target) return
+
+    setDeletingAvatarUrl(target)
+    setAvatarError("")
+    setAvatarSuccess("")
+
+    try {
+      const response = await deleteProfilePic(target, token)
+      const nextActive = response?.profilePic || ""
+      const nextHistory = response?.profilePictures || (user?.profilePictures || []).filter((p) => p !== target)
+
+      if (nextActive) {
+        localStorage.setItem("user_profile_pic", nextActive)
+      } else {
+        localStorage.removeItem("user_profile_pic")
+      }
+
+      setUser((prev) => ({
+        ...prev,
+        profilePic: nextActive,
+        profilePicture: nextActive,
+        avatar: nextActive,
+        avatarUrl: nextActive,
+        profilePictures: nextHistory,
+        profile_avatar: {
+          url: nextActive,
+          secure_url: nextActive,
+        },
+      }))
+
+      setAvatarSuccess("Profile picture removed successfully!")
+    } catch (err) {
+      console.error("Failed to delete profile picture:", err)
+      setAvatarError(err?.response?.data?.message || "Failed to remove profile picture.")
+    } finally {
+      setDeletingAvatarUrl(null)
     }
   }
 
@@ -322,28 +456,29 @@ export default function UserProfilePage() {
                   </div>
                 )}
 
-                {/* Hover darken + Camera icon */}
+                {/* Hover darken + Camera/Options icon */}
                 {!uploadingAvatar && (
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white cursor-pointer z-10"
-                    title="Change profile picture"
-                    aria-label="Change profile picture"
+                    onClick={() => setAvatarModalOpen(true)}
+                    className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer z-10 gap-0.5"
+                    title="Manage profile picture"
+                    aria-label="Manage profile picture"
                   >
-                    <Camera className="size-6 text-white drop-shadow-md" />
+                    <Camera className="size-5 text-white drop-shadow-md" />
+                    <span className="text-[9px] font-medium tracking-wide">Options</span>
                   </button>
                 )}
               </div>
 
-              {/* Dedicated Camera Badge Button */}
+              {/* Dedicated Options Badge Button */}
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setAvatarModalOpen(true)}
                 disabled={uploadingAvatar}
                 className="absolute -bottom-1 -right-1 size-7 rounded-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-md border-2 border-card flex items-center justify-center transition-transform hover:scale-110 cursor-pointer disabled:opacity-50 z-20"
-                title="Upload profile picture"
-                aria-label="Upload profile picture"
+                title="Manage profile picture"
+                aria-label="Manage profile picture"
               >
                 {uploadingAvatar ? (
                   <Loader2 className="size-3.5 animate-spin" />
@@ -366,10 +501,10 @@ export default function UserProfilePage() {
             {/* Name, Email, and Badges */}
             <div className="space-y-1.5 min-w-0">
               <h2 className="text-xl sm:text-2xl font-bold text-foreground truncate">
-                {user?.name || formData.name || "Prithiviraaj"}
+                {user?.name}
               </h2>
               <p className="text-sm text-muted-foreground truncate">
-                {user?.email || formData.email || "prithivi.code@example.com"}
+                {hiddenEmail}
               </p>
 
               {/* Status Badges Row */}
@@ -511,7 +646,7 @@ export default function UserProfilePage() {
                 <input
                   id="profile-email"
                   type="email"
-                  value={formData.email}
+                  value={hiddenEmail}
                   disabled
                   readOnly
                   className="w-full pl-10 pr-28 py-2.5 rounded-xl border border-border bg-neutral-100/60 dark:bg-neutral-800/40 text-muted-foreground text-sm font-medium transition cursor-not-allowed select-all"
@@ -551,7 +686,7 @@ export default function UserProfilePage() {
             </div>
 
             {/* Buttons aligned bottom right */}
-            <div className="pt-6 border-t border-border/70 flex items-center justify-end gap-3">
+            <div className="pt-6 gapborder-t border-border/70 flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={handleCancel}
@@ -563,7 +698,7 @@ export default function UserProfilePage() {
 
               <button
                 type="submit"
-                disabled={saving}
+                disabled={!isDirty || !isFormValid || saving}
                 className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold shadow-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 cursor-pointer"
               >
                 {saving && <Loader2 className="size-4 animate-spin text-white" />}
@@ -735,16 +870,15 @@ export default function UserProfilePage() {
 
           <div className="py-2 space-y-3">
             <div className="p-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-xs text-foreground font-mono truncate">
-              {user?.email || formData.email}
+              {hiddenEmail}
             </div>
 
             {securityNotice && (
               <div
-                className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
-                  resetSentSuccess
-                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                    : "bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800"
-                }`}
+                className={`p-3 rounded-xl text-xs flex items-start gap-2 ${resetSentSuccess
+                  ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                  : "bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800"
+                  }`}
               >
                 {resetSentSuccess ? (
                   <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
@@ -756,7 +890,7 @@ export default function UserProfilePage() {
             )}
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-2">
             <button
               type="button"
               onClick={() => setPasswordModalOpen(false)}
@@ -795,11 +929,10 @@ export default function UserProfilePage() {
 
             {securityNotice && (
               <div
-                className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
-                  resetSentSuccess
-                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                    : "bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800"
-                }`}
+                className={`p-3 rounded-xl text-xs flex items-start gap-2 ${resetSentSuccess
+                  ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                  : "bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800"
+                  }`}
               >
                 {resetSentSuccess ? (
                   <CheckCircle2 className="size-4 shrink-0 text-emerald-600 mt-0.5" />
@@ -811,7 +944,7 @@ export default function UserProfilePage() {
             )}
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 sm:gap-2">
             <button
               type="button"
               onClick={() => setResetModalOpen(false)}
@@ -831,6 +964,292 @@ export default function UserProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Profile Picture Management Modal: View, Update, Delete & History Gallery */}
+      <Dialog open={avatarModalOpen} onOpenChange={setAvatarModalOpen}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="pt-6 px-6">
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <Camera className="size-5 text-blue-600" />
+              <span>Profile Picture Options</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              View your current picture, upload a new photo, or pick from previously uploaded pictures.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-3 px-6 space-y-5">
+            {/* Active Picture Spotlight */}
+            <div className="flex flex-col items-center justify-center gap-3 p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-900/50 border border-border/70">
+              <div className="relative size-24 rounded-full overflow-hidden bg-blue-100 dark:bg-blue-950/60 border-2 border-blue-200 dark:border-blue-800 flex items-center justify-center shadow-xs">
+                {currentAvatarUrl ? (
+                  <img
+                    src={currentAvatarUrl}
+                    alt="Active Profile"
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <span className="font-bold text-2xl text-blue-900 dark:text-blue-200">
+                    {userInitial}
+                  </span>
+                )}
+              </div>
+
+              <div className="text-center">
+                <span className="text-xs font-semibold text-foreground block">
+                  {currentAvatarUrl ? "Current Active Photo" : "No Profile Picture Set"}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {currentAvatarUrl ? "Visible to your team and collaborators" : "Default initials displayed"}
+                </span>
+              </div>
+
+              {/* Three Core Actions: View, Update, Delete */}
+              <div className="flex items-center gap-2 pt-1">
+                {/* 1. View */}
+                {currentAvatarUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setViewingImage(currentAvatarUrl)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border/80 bg-background hover:bg-muted text-xs font-medium text-foreground transition cursor-pointer"
+                  >
+                    <Eye className="size-3.5 text-blue-600" />
+                    <span>View</span>
+                  </button>
+                )}
+
+                {/* 2. Update (Trigger file upload) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    fileInputRef.current?.click()
+                  }}
+                  disabled={uploadingAvatar}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-medium transition cursor-pointer disabled:opacity-50"
+                >
+                  {uploadingAvatar ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="size-3.5" />
+                  )}
+                  <span>{uploadingAvatar ? "Uploading…" : "Upload New"}</span>
+                </button>
+
+                {/* 3. Delete */}
+                {currentAvatarUrl && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteAvatar(currentAvatarUrl)}
+                    disabled={Boolean(deletingAvatarUrl)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 text-xs font-medium text-red-600 dark:text-red-400 transition cursor-pointer disabled:opacity-50"
+                  >
+                    {deletingAvatarUrl === currentAvatarUrl ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="size-3.5" />
+                    )}
+                    <span>Delete</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Previously Kept Profiles (Gallery History) */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <ImageIcon className="size-3.5 text-muted-foreground" />
+                  <span>Previously Kept Profiles</span>
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {savedProfilePictures.length} {savedProfilePictures.length === 1 ? "photo" : "photos"}
+                </span>
+              </div>
+
+              {savedProfilePictures.length === 0 ? (
+                <div className="text-center py-6 px-4 rounded-xl border border-dashed border-border/80 text-xs text-muted-foreground">
+                  No previous profile pictures saved. Upload an image to start your history.
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-2.5">
+                  {savedProfilePictures.map((picUrl, idx) => {
+                    const isActive = picUrl === currentAvatarUrl
+                    const isDeleting = deletingAvatarUrl === picUrl
+                    const isSelecting = selectingAvatarUrl === picUrl
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`group relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${isActive
+                          ? "border-blue-600 ring-2 ring-blue-500/30"
+                          : "border-border/80 hover:border-blue-400/70"
+                          }`}
+                      >
+                        <img
+                          src={picUrl}
+                          alt={`Saved profile ${idx + 1}`}
+                          className="size-full object-cover cursor-pointer"
+                          onClick={() => handleSelectAvatar(picUrl)}
+                        />
+
+                        {/* Active Badge */}
+                        {isActive && (
+                          <div className="absolute top-1 right-1 size-5 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-sm ring-2 ring-white dark:ring-neutral-900">
+                            <Check className="size-3" strokeWidth={3} />
+                          </div>
+                        )}
+
+                        {/* Hover Overlay with View, Select, and Delete buttons */}
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 z-10">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setViewingImage(picUrl)
+                            }}
+                            title="View Full Image"
+                            className="p-1.5 rounded-lg bg-white/20 hover:bg-white/40 text-white text-xs transition cursor-pointer"
+                          >
+                            <Eye className="size-3.5" />
+                          </button>
+
+                          {!isActive && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleSelectAvatar(picUrl)
+                              }}
+                              title="Set as Active Profile"
+                              disabled={isSelecting}
+                              className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs transition cursor-pointer disabled:opacity-50"
+                            >
+                              {isSelecting ? (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              ) : (
+                                <Check className="size-3.5" />
+                              )}
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteAvatar(picUrl)
+                            }}
+                            title="Delete Photo"
+                            disabled={isDeleting}
+                            className="p-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs transition cursor-pointer disabled:opacity-50"
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setAvatarModalOpen(false)}
+              className="px-4 py-2 rounded-xl border border-border bg-background hover:bg-muted text-xs font-semibold text-foreground transition cursor-pointer"
+            >
+              Done
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Full Image Preview Lightbox */}
+
+      <Dialog
+        open={Boolean(viewingImage)}
+        onOpenChange={(open) => !open && setViewingImage(null)}
+      >
+        <DialogContent
+          className="
+      sm:max-w-lg p-4
+      bg-white dark:bg-neutral-950
+      text-neutral-900 dark:text-white
+      border border-neutral-200 dark:border-neutral-800
+      shadow-xl
+    "
+        >
+          <div className="relative flex flex-col items-center justify-center gap-4">
+
+            {/* Profile Image Preview */}
+            {viewingImage && (
+              <div className="
+          w-full flex items-center justify-center
+          rounded-xl overflow-hidden p-2
+        ">
+                <img
+                  src={viewingImage}
+                  alt="Profile View"
+                  className="
+              max-h-[70vh] max-w-full
+              w-auto h-auto
+              rounded-lg object-contain
+            "
+                />
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between w-full px-1">
+
+              <div className="flex flex-col gap-0.5">
+                <span className="
+            text-xs font-semibold
+            text-neutral-800 dark:text-neutral-200
+          ">
+                  Profile Picture Preview
+                </span>
+
+                <span className="
+            text-[11px]
+            text-neutral-500 dark:text-neutral-400
+          ">
+                  Your profile image
+                </span>
+              </div>
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setViewingImage(null)}
+                className="
+            px-4 py-2 rounded-lg
+            bg-neutral-100 hover:bg-neutral-200
+            dark:bg-neutral-800 dark:hover:bg-neutral-700
+            text-neutral-800 dark:text-neutral-100
+            border border-neutral-200 dark:border-neutral-700
+            text-xs font-semibold
+            transition-all duration-200
+            focus-visible:outline-none
+            focus-visible:ring-2
+            focus-visible:ring-blue-500/50
+            active:scale-95
+            cursor-pointer
+          "
+              >
+                Close
+              </button>
+
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

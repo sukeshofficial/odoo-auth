@@ -1,11 +1,17 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
+import { USER_ROLES } from "../config/roles.js";
 
-export const USER_ROLES = {
-  CUSTOMER: "customer",
-  END_USER: "end_user",
-  INTERNAL_STAFF: "internal_staff",
-};
+// Re-export USER_ROLES for backward compatibility with imports from user.model.js
+export { USER_ROLES };
+
+// Keep legacy role aliases for schemas and backward compatibility
+export const EXTENDED_ROLES = [
+  ...Object.values(USER_ROLES),
+  "customer",
+  "end_user",
+  "internal_staff",
+];
 
 export const USER_STATUS = {
   ACTIVE: "active",
@@ -50,11 +56,23 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       enum: {
-        values: Object.values(USER_ROLES),
+        values: EXTENDED_ROLES,
         message: "{VALUE} is not a supported role",
       },
-      default: USER_ROLES.CUSTOMER,
+      default: USER_ROLES.USER,
       index: true,
+    },
+    permissions: {
+      type: [String],
+      default: [],
+    },
+    profilePicture: {
+      type: String,
+      default: "",
+    },
+    profilePictures: {
+      type: [String],
+      default: [],
     },
     status: {
       type: String,
@@ -64,6 +82,10 @@ const userSchema = new mongoose.Schema(
       },
       default: USER_STATUS.ACTIVE,
       index: true,
+    },
+    tokenVersion: {
+      type: Number,
+      default: 0,
     },
     emailVerified: {
       type: Boolean,
@@ -83,6 +105,9 @@ const userSchema = new mongoose.Schema(
     toJSON: {
       transform(doc, ret) {
         ret.id = ret._id ? ret._id.toString() : undefined;
+        // Provide alias profilePic for client compatibility
+        ret.profilePic = ret.profilePicture || "";
+        ret.profilePictures = ret.profilePictures || [];
         delete ret._id;
         delete ret.__v;
         delete ret.password;
@@ -94,7 +119,7 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Hash password before saving if modified (Mongoose async hooks do not use next())
+// Hash password before saving if modified
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) {
     return;
@@ -117,8 +142,13 @@ userSchema.methods.toSafeObject = function () {
     email: this.email,
     phone: this.phone,
     role: this.role,
+    permissions: this.permissions || [],
+    profilePicture: this.profilePicture || "",
+    profilePic: this.profilePicture || "", // Alias for client compatibility
+    profilePictures: this.profilePictures || [],
     status: this.status,
     emailVerified: this.emailVerified,
+    tokenVersion: this.tokenVersion ?? 0,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,
   };
