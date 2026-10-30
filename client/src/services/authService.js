@@ -132,6 +132,35 @@ export async function updateMe(updates, token) {
 export const updateProfile = updateMe;
 
 /**
+ * 4b. Upload profile picture to Cloudinary
+ * POST /api/v1/auth/profilePic (with fallback to /api/v1/auth/profile-pic)
+ *
+ * Accepts FormData with field "profilePic"
+ * Response: { success, message, url, profilePic, user }
+ */
+export async function uploadProfilePic(file, token) {
+    const formData = new FormData();
+    formData.append("profilePic", file);
+
+    const headers = buildAuthHeaders(token, {
+        "Content-Type": "multipart/form-data",
+    });
+
+    try {
+        const { data } = await api.post(`${AUTH_BASE_URL}/profilePic`, formData, { headers });
+        return data;
+    } catch (err) {
+        if (err?.response?.status === 404) {
+            const { data } = await api.post(`${AUTH_BASE_URL}/profile-pic`, formData, { headers });
+            return data;
+        }
+        throw err;
+    }
+}
+
+export const uploadProfilePicture = uploadProfilePic;
+
+/**
  * 5. Access staff dashboard
  * GET /api/v1/auth/staff/dashboard
  * 

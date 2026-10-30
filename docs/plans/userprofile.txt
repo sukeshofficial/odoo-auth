@@ -1,0 +1,232 @@
+# Implement Navbar & User Profile Page — ReWear
+
+Act as a Senior Product Designer and Frontend Engineer. Build the **Navbar and complete User Profile page** for the existing ReWear application.
+
+Use the attached User Profile screenshot as the primary visual reference. Follow `@frontend-skill(5).md` as the mandatory frontend design and implementation guideline.
+
+## 1. Inspect Before Implementation
+
+Before writing code:
+
+- Inspect the existing frontend architecture, routes, components and dependencies.
+- Examine the current navbar implementation and reuse its existing components wherever possible.
+- Identify existing typography, design tokens, theme configuration, spacing, borders, component styles and reusable UI primitives.
+- Study `@frontend-skill(5).md` and follow its reference analysis, design system, responsive design, accessibility and visual QA requirements.
+- Derive the visual styling from the existing application and established design tokens. Do not independently invent a new color palette or introduce a competing visual style.
+
+## 2. Navbar Design
+
+Replace the current navigation structure with a clean horizontal navbar matching the supplied reference.
+
+**Required navigation items, in this exact order:**
+
+1. Home icon — retain the existing home icon or logo icon.
+2. Dashboard
+3. Rental
+4. Products
+5. Reporting
+
+**Remove completely:**
+- Order
+- Setting
+- Any unnecessary navigation items.
+
+**Right-side controls:**
+
+- Preserve the existing theme toggle functionality.
+- Display the authenticated user's initials avatar.
+- Display the username with appropriate truncation for longer names.
+- Include a dropdown indicator.
+
+**User dropdown interaction:**
+
+Clicking the avatar or username must open an accessible dropdown containing:
+
+- My Profile — navigate to the User Profile page.
+- Sign Out — trigger the existing logout functionality.
+
+Requirements:
+- Use the existing authentication context and routing.
+- Provide appropriate hover, focus and active states.
+- Close the dropdown when clicking outside or pressing Escape.
+- Highlight the appropriate navigation destination based on the current route.
+- Do not highlight Dashboard when viewing the User Profile page.
+- Maintain consistent navbar dimensions and alignment across application pages.
+
+The navbar should be a shared, reusable application component rather than a page-specific duplicate.
+
+## 3. User Profile Page
+
+Remove the sidebar completely. The navbar is the primary navigation mechanism.
+
+Follow the supplied screenshot's overall structure, proportions, spacing, alignment and information hierarchy.
+
+### A. Page Heading
+
+Heading: **Your Profile**
+
+Supporting text: **Manage your personal details and keep your account secure.**
+
+Keep the heading clear and the supporting text concise. Avoid unnecessary introductory content.
+
+### B. Profile Summary
+
+Create a full-width profile summary section containing:
+
+- Initials-based avatar.
+- User's full name.
+- Email address.
+- Account role badge.
+- Account status indicator.
+- Email verification indicator.
+
+On the right side, show:
+
+- Member Since — derived from `createdAt`.
+- Last Updated — derived from `updatedAt`.
+
+Use a subtle vertical divider to distinguish the account information from the date metadata.
+
+### C. Personal Information
+
+Create the larger left-side section titled **Personal Information**.
+
+Include three editable fields:
+
+1. Full Name — `name`
+2. Email Address — `email`
+3. Phone Number — `phone`
+
+Include:
+- Appropriate field icons.
+- Clear labels.
+- Consistent input dimensions.
+- Email verification indication where applicable.
+- A small contextual message explaining that changing an email address may require re-verification.
+- Cancel and Save Changes buttons aligned at the bottom.
+
+The form must use the authenticated user's actual data. Do not introduce unsupported profile fields such as location, postal code or profile-image upload.
+
+### D. Security
+
+Create a separate Security section on the right.
+
+Include two rows:
+
+**Password**
+- Lock icon.
+- Title: Password.
+- Supporting text: Keep your account secure with a strong password.
+- Action: Change Password.
+
+**Password Reset**
+- Key icon.
+- Title: Password Reset.
+- Supporting text: Manage your recovery options.
+- Action: Manage.
+
+Use the existing password-change and password-reset functionality where available. Do not expose password hashes, reset tokens or expiration metadata.
+
+The security actions must remain separate from the Personal Information form.
+
+### E. Account Details
+
+Below Security, create an Account Details section.
+
+Display the following as read-only information:
+
+| Label | Backend field |
+|---|---|
+| Account Role | `role` |
+| Account Status | `status` |
+| Email Verification | `emailVerified` |
+| Member Since | `createdAt` |
+| Last Updated | `updatedAt` |
+
+Use appropriate icons, consistent row spacing and semantic status indicators.
+
+Avoid duplicating unnecessary information or introducing unsupported account metadata.
+
+## 4. Backend Integration
+
+Follow the existing Mongoose User model:
+
+- `name`
+- `email`
+- `phone`
+- `role`
+- `status`
+- `emailVerified`
+- `createdAt`
+- `updatedAt`
+
+Only `name`, `email` and `phone` should be editable through the profile form.
+
+Never allow profile updates to modify:
+- `role`
+- `status`
+- `emailVerified`
+- `password`
+- `passwordResetToken`
+- `passwordResetExpires`
+
+Use existing API services, authentication context and validation patterns. Do not create duplicate authentication logic.
+
+Handle loading, success, validation errors, failed requests and unsaved changes appropriately.
+
+## 5. Visual Design Requirements
+
+Treat the attached screenshot as the source of truth for composition and layout.
+
+- Preserve the minimal, clean account-settings structure.
+- Keep the profile summary full width.
+- Use the two-column arrangement for Personal Information and Security.
+- Position Account Details beneath Security.
+- Maintain consistent input sizes, card proportions, spacing, alignment and typography.
+- Avoid unnecessary decorative elements, nested cards, excessive shadows and redundant helper text.
+- Maintain visual consistency with the existing application design system.
+- Do not introduce a new design direction that conflicts with the supplied reference.
+
+The page should look like a natural extension of the existing ReWear dashboard, not a separately designed application.
+
+## 6. Responsive Design
+
+Follow the responsive requirements in `@frontend-skill(5).md`.
+
+Desktop:
+- Horizontal navbar.
+- Full-width profile summary.
+- Two-column information layout.
+
+Tablet:
+- Adjust column proportions and spacing.
+- Prevent form controls and actions from becoming cramped.
+
+Mobile:
+- Adapt the navbar without losing access to navigation and profile actions.
+- Stack Personal Information, Security and Account Details logically.
+- Keep every field and action accessible.
+- Prevent horizontal overflow.
+
+## 7. Final Quality Verification
+
+Before considering the task complete:
+
+1. Compare the implementation with the supplied screenshot.
+2. Verify navbar positioning, dimensions and dropdown behavior.
+3. Check profile form alignment and card proportions.
+4. Test the profile update and logout interactions.
+5. Verify the account data mappings.
+6. Check light and dark themes using the existing theme system.
+7. Test mobile, tablet and desktop layouts.
+8. Resolve visual inconsistencies and console/build errors.
+
+Do not claim that functionality or visual behavior has been tested unless it has actually been verified.
+
+## Final Objective
+
+Deliver one complete, production-ready User Profile page with a reusable horizontal navbar.
+
+The result should closely follow the supplied reference's composition while preserving ReWear's existing design system, application architecture and authentication functionality.
+
+**Do not redesign unrelated dashboard pages. Do not introduce Orders or Settings into the navbar. Do not create a sidebar. Avoid unnecessary refactoring.**

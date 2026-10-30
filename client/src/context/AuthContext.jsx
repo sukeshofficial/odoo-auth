@@ -26,7 +26,12 @@ export function AuthProvider({ children }) {
       try {
         const response = await getMe(stored)
         if (isMounted) {
-          setUser(response?.user || { email: "user@example.com" })
+          const userData = response?.user || { email: "user@example.com" }
+          const cachedPic = localStorage.getItem("user_profile_pic")
+          if (cachedPic && !userData.profilePic && !userData.avatar) {
+            userData.profilePic = cachedPic
+          }
+          setUser(userData)
         }
       } catch (err) {
         // If the token is invalid or expired, clear it
@@ -69,6 +74,7 @@ export function AuthProvider({ children }) {
       console.warn("Logout request completed with local cleanup", e?.message)
     } finally {
       removeStoredToken()
+      localStorage.removeItem("user_profile_pic")
       setTokenState(null)
       setUser(null)
     }
